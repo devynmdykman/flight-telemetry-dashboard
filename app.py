@@ -4,18 +4,35 @@ import pandas as pd
 import plotly.express as px
 
 def m_to_ft(m: float) -> float:
+    #Convert meters to feet
     return m * 3.28084
 
 def ms_to_knots(ms: float) -> float:
+    #Convert meters/seconds to knots
     return ms * 1.94384
 
+#Path to submission DB file
 DB_PATH = "/Users/devyndykman/Desktop/beta_submission.duckdb"
+
+#----------------------------------------
+#Streamlit page config
+#----------------------------------------
 
 st.set_page_config(page_title="BETA Flight Dashboard", layout="wide")
 st.title("Flight Overview Dashboard")
 
+#----------------------------------------
+#DA0
+#
+#Notes: 
+# - all data access is centralized into small functions
+# - st.cache_data avoids re-running queries on every ui interaction
+#-----------------------------------------
+
 @st.cache_data
 def get_flight_list():
+    
+    #Fetch list of available flights for user
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute("""
         SELECT flight_number
@@ -27,6 +44,8 @@ def get_flight_list():
 
 @st.cache_data
 def get_flight_summary(flight_number: int) -> pd.DataFrame:
+
+    #Retrieve pre-aggregated metrics
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute("""
         SELECT *
@@ -38,6 +57,8 @@ def get_flight_summary(flight_number: int) -> pd.DataFrame:
 
 @st.cache_data
 def get_flight_timeseries(flight_number: int) -> pd.DataFrame:
+
+    #load cleaned telemetry for a single flight
     con = duckdb.connect(DB_PATH, read_only=True)
     df = con.execute("""
         SELECT
@@ -53,21 +74,32 @@ def get_flight_timeseries(flight_number: int) -> pd.DataFrame:
     con.close()
     return df
 
+#------------------------------------------
+# UI controls
+#------------------------------------------
+
 flights = get_flight_list()
 flight_number = st.selectbox("Select a flight", flights)
 use_aviation_units = st.toggle("Use aviation units (ft, knots)", value=True)
 
+#------------------------------------------
+# Load data for selected flight
+#------------------------------------------
+
 summary = get_flight_summary(int(flight_number)).iloc[0]
 ts = get_flight_timeseries(int(flight_number))
 
-# Ensure ts is sorted
+#Ensure chronological order
 ts = ts.sort_values("ts")
 
-# Add conversions for charting
+#Pre comput unit conversions 
 ts["altitude_ft"] = ts["altitude"] * 3.28084
 ts["airspeed_knots"] = ts["airspeed"] * 1.94384
 
-# KPIs
+#-------------------------------------------
+# KPI section
+#-------------------------------------------
+
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Distance (nm)", f"{summary['distance']:.1f}")
 c2.metric("Max Altitude (ft)", f"{summary['max_altitude']:.0f}")
@@ -77,16 +109,17 @@ c5.metric("Route", f"{summary['origin_airport']} → {summary['destination_airpo
 
 st.divider()
 
+#------------------------------------------
+# Flight Health Checks
+#------------------------------------------
 st.subheader("Flight Health Checks")
 
-# Basic checks
 n_points = len(ts)
 n_missing_alt = int(ts["altitude"].isna().sum())
 n_missing_spd = int(ts["airspeed"].isna().sum())
 n_negative_spd = int((ts["airspeed"] < 0).sum())
 
-# Compute climb rate in ft/min from timeseries (simple, explainable)
-# (This is for QC display; your official max_climb_rate is from SQL.)
+#Approximate climb/descent rate from timeseries
 dt_seconds = ts["ts"].diff().dt.total_seconds()
 dalt_ft = ts["altitude_ft"].diff()
 climb_ft_min = dalt_ft / (dt_seconds / 60.0)
@@ -94,14 +127,17 @@ climb_ft_min = climb_ft_min.replace([float("inf"), float("-inf")], pd.NA)
 
 max_abs_climb = float(climb_ft_min.abs().max(skipna=True)) if climb_ft_min.notna().any() else 0.0
 
-# Heuristic thresholds (simple + defensible)
-# Adjust if needed, but these are reasonable "attention" triggers.
-CLIMB_RATE_ALERT_FTPM = 4000  # alert if extremely steep climb/descent
-NEG_AIRSPEED_ALERT = 1        # any negative airspeed is worth flagging
+#Heuristic thresholds
+CLIMB_RATE_ALERT_FTPM = 4000  
+#alert if extremely steep climb/descent
+NEG_AIRSPEED_ALERT = 1        
+#any negative airspeed is worth flagging
 
 colA, colB, colC, colD = st.columns(4)
 
-# Status helper
+#------------------------------------------
+#Status helper
+#------------------------------------------
 def status_line(ok: bool, ok_msg: str, warn_msg: str):
     if ok:
         st.success(ok_msg)
@@ -138,7 +174,9 @@ with st.expander("Why these checks?"):
         """
     )
 
-# Charts
+#------------------------------------------
+#Charts/Visuals
+#------------------------------------------
 left, right = st.columns(2)
 
 with left:
