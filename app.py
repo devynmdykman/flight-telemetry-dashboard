@@ -1,5 +1,6 @@
 import streamlit as st
 import duckdb
+import os
 import pandas as pd
 import plotly.express as px
 
@@ -12,7 +13,7 @@ def ms_to_knots(ms: float) -> float:
     return ms * 1.94384
 
 #Path to submission DB file
-DB_PATH = "/Users/devyndykman/Desktop/beta_submission.duckdb"
+DB_PATH = os.path.expanduser(os.environ.get("BETA_DB_PATH", "beta_submission.duckdb"))
 
 #----------------------------------------
 #Streamlit page config
@@ -20,6 +21,11 @@ DB_PATH = "/Users/devyndykman/Desktop/beta_submission.duckdb"
 
 st.set_page_config(page_title="BETA Flight Dashboard", layout="wide")
 st.title("Flight Overview Dashboard")
+
+if not os.path.exists(DB_PATH):
+    st.error(f"Database not found at: {DB_PATH}")
+    st.stop()
+
 
 #----------------------------------------
 #DA0
